@@ -158,20 +158,21 @@ class Example(QtWidgets.QDialog):
         qp.drawPath(path)
         
         
-    def mouseMoveEvent(self, pos):
-        
+    def mouseMoveEvent(self, event):
+
         width = self.geometry().width()
         height = self.geometry().height()
-        
+
         # Start doing math here to symmetrize the vertical
         # and do opposite the horizontal
-        
-        pX = pos.x() / width 
+
+        pos = event.pos()  # Get QPoint from QMouseEvent
+        pX = pos.x() / width
         pY = pos.y() / height
-        
+
         percentageX = remap(0.0, 1.0, 0.0, 1.0, pX)
         percentageY = remap(0.0, 1.0, 0.0, 1.0, pY)
-        
+
         x1Value = min(max(self.margin, pos.x()), 400 - self.margin)
         y1Value = min(max(self.margin, pos.y()), 400 - self.margin)
         
