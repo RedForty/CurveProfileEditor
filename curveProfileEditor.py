@@ -240,7 +240,12 @@ class Example(QtWidgets.QDialog):
         # Start doing math here to symmetrize the vertical
         # and do opposite the horizontal
 
-        pos = event.pos()  # Get QPoint from QMouseEvent
+        # Qt6 compatibility: use position() instead of pos()
+        if hasattr(event, 'position'):
+            pos = event.position().toPoint()  # Qt6
+        else:
+            pos = event.pos()  # Qt5
+
         pX = pos.x() / width
         pY = pos.y() / height
 
