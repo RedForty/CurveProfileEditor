@@ -62,10 +62,14 @@ class Example(QtWidgets.QDialog):
         self.setProperty("saveWindowPref", True)
         self.setFocusPolicy(QtCore.Qt.ClickFocus)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
-        
+
         self.lmb = True
         self.rmb = True
-        
+        self.mmb = False
+
+        self.dev_mode = True  # Enable dev mode for sampling visualization
+        self.sample_x = None  # X position for sampling line
+
         self.margin = 20
         
         self.x1 = 200
@@ -104,12 +108,16 @@ class Example(QtWidgets.QDialog):
         
         if self.rmb:
             self.drawBezierCurve(qp, self.margin, self.y1, 400 - self.margin, self.y2)
-            
+
             self.drawLine(qp, self.margin, self.margin, self.margin, self.y1)
             self.drawLine(qp, 400 - self.margin, 400 - self.margin, 400 - self.margin, self.y2)
             self.drawDots(qp, self.margin, self.y1, self.blue)
             self.drawDots(qp, 400 - self.margin, self.y2, self.blue)
-        
+
+        # Dev mode: draw sampling line and value
+        if self.dev_mode and self.sample_x is not None:
+            self.drawSampleLine(qp, self.sample_x)
+
         qp.end()        
 
 
@@ -151,11 +159,67 @@ class Example(QtWidgets.QDialog):
         pen.setColor(QtGui.QColor(192, 192, 192))
         pen.setWidth(2)
         qp.setPen(pen)
-        
+
         path = QtGui.QPainterPath()
         path.moveTo(x0, y0)
         path.lineTo(x1, y1)
         qp.drawPath(path)
+
+    def drawSampleLine(self, qp, x):
+        """Draw a vertical sampling line and display the Y value at that X position"""
+        # Clamp x to the drawable area
+        x = max(self.margin, min(400 - self.margin, x))
+
+        # Draw vertical line
+        pen = QtGui.QPen()
+        pen.setColor(QtGui.QColor(0, 255, 0, 200))  # Green with some transparency
+        pen.setWidth(2)
+        qp.setPen(pen)
+
+        path = QtGui.QPainterPath()
+        path.moveTo(x, self.margin)
+        path.lineTo(x, 400 - self.margin)
+        qp.drawPath(path)
+
+        # Sample the curve at this X position
+        y_value = self.sample_curve_at_x(x, use_lmb=self.lmb)
+
+        # Draw a dot at the sampled point
+        pen.setColor(QtGui.QColor(0, 255, 0))
+        pen.setCapStyle(QtCore.Qt.RoundCap)
+        pen.setWidth(8)
+        qp.setPen(pen)
+        qp.drawPoint(int(x), int(y_value))
+
+        # Get normalized value (0 to 1)
+        time_norm = inv_lerp(self.margin, 400 - self.margin, x)
+        amount_norm = self.sample_curve_normalized(time_norm, use_lmb=self.lmb)
+
+        # Draw text label below the line
+        pen.setColor(QtGui.QColor(255, 255, 255))
+        pen.setWidth(1)
+        qp.setPen(pen)
+
+        font = QtGui.QFont()
+        font.setPointSize(10)
+        font.setBold(True)
+        qp.setFont(font)
+
+        # Format the text
+        text = "T: {:.3f} | V: {:.3f}".format(time_norm, amount_norm)
+
+        # Calculate text position (below the drawable area)
+        text_rect = qp.fontMetrics().boundingRect(text)
+        text_x = x - text_rect.width() / 2
+        text_y = 400 - self.margin + 15
+
+        # Draw text background for better visibility
+        bg_rect = QtCore.QRectF(text_x - 2, text_y - text_rect.height(),
+                                 text_rect.width() + 4, text_rect.height() + 2)
+        qp.fillRect(bg_rect, QtGui.QColor(0, 0, 0, 180))
+
+        # Draw the text
+        qp.drawText(int(text_x), int(text_y), text)
         
         
     def mouseMoveEvent(self, event):
@@ -175,16 +239,21 @@ class Example(QtWidgets.QDialog):
 
         x1Value = min(max(self.margin, pos.x()), 400 - self.margin)
         y1Value = min(max(self.margin, pos.y()), 400 - self.margin)
-        
+
         x2Value = min(max(self.margin, 400 * (1.0 - percentageY)), 400 - self.margin)
         y2Value = min(max(self.margin, 400 * (1.0 - percentageX)), 400 - self.margin)
 
-        self.x1 = x1Value
-        self.y1 = y1Value
-        
-        self.x2 = x2Value 
-        self.y2 = y2Value
-            
+        # Dev mode: update sample position when middle mouse is held
+        if self.dev_mode and self.mmb:
+            self.sample_x = pos.x()
+        elif not self.mmb:
+            # Update control points when not sampling
+            self.x1 = x1Value
+            self.y1 = y1Value
+
+            self.x2 = x2Value
+            self.y2 = y2Value
+
         self.update() # Repaint
 
 
@@ -192,14 +261,28 @@ class Example(QtWidgets.QDialog):
         check  = QtWidgets.QApplication.instance().mouseButtons()
         self.lmb  = bool(QtCore.Qt.LeftButton & check)
         self.rmb  = bool(QtCore.Qt.RightButton & check)
-        
+        self.mmb  = bool(QtCore.Qt.MiddleButton & check)
+
         super(Example, self).mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         check  = QtWidgets.QApplication.instance().mouseButtons()
         self.lmb  = bool(QtCore.Qt.LeftButton & check)
         self.rmb  = bool(QtCore.Qt.RightButton & check)
+        self.mmb  = bool(QtCore.Qt.MiddleButton & check)
         super(Example, self).mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts"""
+        if event.key() == QtCore.Qt.Key_D:
+            # Toggle dev mode with 'D' key
+            self.dev_mode = not self.dev_mode
+            if not self.dev_mode:
+                self.sample_x = None  # Clear sample line when disabling
+            self.update()
+            print("Dev mode: {}".format("ON" if self.dev_mode else "OFF"))
+
+        super(Example, self).keyPressEvent(event)
 
     def find_t_for_x(self, target_x, p0_x, p1_x, p2_x, p3_x, tolerance=0.0001, max_iterations=10):
         """
