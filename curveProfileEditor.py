@@ -10,6 +10,14 @@ Quick Bezier profile editor
 from __future__ import division # Need to get floats when dividing intergers
 from Qt import QtWidgets, QtGui, QtCore, QtCompat
 import maya.OpenMayaUI as mui
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
+
+# Debug mode: Enable curve sampling visualization
+DEBUG = True
 
 # Thank you Freya Holmer | Neat Corp
 # https://youtu.be/NzjF1pdlK7Y
@@ -67,7 +75,6 @@ class Example(QtWidgets.QDialog):
         self.rmb = True
         self.mmb = False
 
-        self.dev_mode = True  # Enable dev mode for sampling visualization
         self.sample_x = None  # X position for sampling line
 
         self.margin = 20
@@ -89,6 +96,9 @@ class Example(QtWidgets.QDialog):
         self.setFixedSize(400, 400)
         self.setWindowTitle('Bezier curve')
         self.show()
+
+        if DEBUG:
+            logger.info("Curve Profile Editor started with DEBUG mode enabled")
 
 
     def paintEvent(self, e):
@@ -114,8 +124,8 @@ class Example(QtWidgets.QDialog):
             self.drawDots(qp, self.margin, self.y1, self.blue)
             self.drawDots(qp, 400 - self.margin, self.y2, self.blue)
 
-        # Dev mode: draw sampling line and value
-        if self.dev_mode and self.sample_x is not None:
+        # Debug mode: draw sampling line and value
+        if DEBUG and self.sample_x is not None:
             self.drawSampleLine(qp, self.sample_x)
 
         qp.end()        
@@ -243,8 +253,8 @@ class Example(QtWidgets.QDialog):
         x2Value = min(max(self.margin, 400 * (1.0 - percentageY)), 400 - self.margin)
         y2Value = min(max(self.margin, 400 * (1.0 - percentageX)), 400 - self.margin)
 
-        # Dev mode: update sample position when middle mouse is held
-        if self.dev_mode and self.mmb:
+        # Debug mode: update sample position when middle mouse is held
+        if DEBUG and self.mmb:
             self.sample_x = pos.x()
         elif not self.mmb:
             # Update control points when not sampling
@@ -263,6 +273,9 @@ class Example(QtWidgets.QDialog):
         self.rmb  = bool(QtCore.Qt.RightButton & check)
         self.mmb  = bool(QtCore.Qt.MiddleButton & check)
 
+        if DEBUG and self.mmb:
+            logger.debug("Started curve sampling with middle mouse button")
+
         super(Example, self).mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -271,18 +284,6 @@ class Example(QtWidgets.QDialog):
         self.rmb  = bool(QtCore.Qt.RightButton & check)
         self.mmb  = bool(QtCore.Qt.MiddleButton & check)
         super(Example, self).mouseReleaseEvent(event)
-
-    def keyPressEvent(self, event):
-        """Handle keyboard shortcuts"""
-        if event.key() == QtCore.Qt.Key_D:
-            # Toggle dev mode with 'D' key
-            self.dev_mode = not self.dev_mode
-            if not self.dev_mode:
-                self.sample_x = None  # Clear sample line when disabling
-            self.update()
-            print("Dev mode: {}".format("ON" if self.dev_mode else "OFF"))
-
-        super(Example, self).keyPressEvent(event)
 
     def find_t_for_x(self, target_x, p0_x, p1_x, p2_x, p3_x, tolerance=0.0001, max_iterations=10):
         """
