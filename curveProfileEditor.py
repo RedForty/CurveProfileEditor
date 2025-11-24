@@ -54,21 +54,71 @@ def cubic_bezier_derivative(p0, p1, p2, p3, t):
 
 def _get_maya_window():
     ptr = mui.MQtUtil.mainWindow()
-    return QtCompat.wrapInstance(int(ptr), QtWidgets.QMainWindow) 
+    return QtCompat.wrapInstance(int(ptr), QtWidgets.QMainWindow)
+
+
+class EphemeralHotkeyFilter(QtCore.QObject):
+    """
+    Global event filter to detect hotkey press/release for ephemeral mode.
+    This allows the curve editor to show/hide even when it doesn't have focus.
+    """
+
+    def __init__(self, curve_editor, hotkey):
+        super(EphemeralHotkeyFilter, self).__init__()
+        self.curve_editor = curve_editor
+        self.hotkey = hotkey
+        self.hotkey_pressed = False
+
+    def eventFilter(self, obj, event):
+        # Only process key events
+        if event.type() == QtCore.QEvent.KeyPress:
+            if event.key() == self.hotkey and not event.isAutoRepeat():
+                if not self.hotkey_pressed:
+                    self.hotkey_pressed = True
+                    self.curve_editor.show()
+                    self.curve_editor.raise_()
+                    self.curve_editor.activateWindow()
+                    if DEBUG:
+                        logger.debug("Global hotkey pressed - showing curve editor")
+        elif event.type() == QtCore.QEvent.KeyRelease:
+            if event.key() == self.hotkey and not event.isAutoRepeat():
+                if self.hotkey_pressed:
+                    self.hotkey_pressed = False
+                    self.curve_editor.hide()
+                    if DEBUG:
+                        logger.debug("Global hotkey released - hiding curve editor")
+
+        # Always pass the event through
+        return False 
 
 class Example(QtWidgets.QDialog):
 
-    def __init__(self):
+    def __init__(self, ephemeral_mode=False, hotkey=QtCore.Qt.Key_Shift):
         super(Example, self).__init__()
-        
+
+        self.ephemeral_mode = ephemeral_mode
+        self.hotkey = hotkey
+        self.hotkey_pressed = False
+
         self.setParent(_get_maya_window())
-        self.setWindowFlags(
-            QtCore.Qt.Dialog |
-            QtCore.Qt.WindowCloseButtonHint
-        )
+
+        if self.ephemeral_mode:
+            # Ephemeral mode: frameless, transparent, always on top
+            self.setWindowFlags(
+                QtCore.Qt.FramelessWindowHint |
+                QtCore.Qt.WindowStaysOnTopHint |
+                QtCore.Qt.Tool
+            )
+            self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        else:
+            # Traditional dialog mode
+            self.setWindowFlags(
+                QtCore.Qt.Dialog |
+                QtCore.Qt.WindowCloseButtonHint
+            )
 
         self.setProperty("saveWindowPref", True)
-        self.setFocusPolicy(QtCore.Qt.ClickFocus)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)  # Need strong focus for key events
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
 
         self.lmb = True
@@ -78,51 +128,83 @@ class Example(QtWidgets.QDialog):
         self.sample_x = None  # X position for sampling line
 
         self.margin = 20
-        
+
         self.x1 = 200
         self.y1 = 200
-        
+
         self.x2 = 200
         self.y2 = 200
-        
+
         self.red  = QtGui.QColor(250, 0, 0  , 150)
         self.blue = QtGui.QColor(  0, 0, 255, 150)
-        
+
         self.initUI()
 
 
     def initUI(self):
-        self.setGeometry(300, 300, 400, 400)
-        self.setFixedSize(400, 400)
-        self.setWindowTitle('Bezier curve')
-        self.show()
+        if self.ephemeral_mode:
+            # Ephemeral mode: larger size, centered on screen
+            # Get Maya main window geometry to center on it
+            maya_window = self.parent()
+            if maya_window:
+                maya_geom = maya_window.geometry()
+                # Create a larger window (600x600) centered on Maya
+                size = 600
+                x = maya_geom.x() + (maya_geom.width() - size) / 2
+                y = maya_geom.y() + (maya_geom.height() - size) / 2
+                self.setGeometry(int(x), int(y), size, size)
+            else:
+                # Fallback if no parent
+                self.setGeometry(300, 300, 600, 600)
 
-        if DEBUG:
-            logger.info("Curve Profile Editor started with DEBUG mode enabled")
+            # Don't show immediately in ephemeral mode - wait for hotkey
+            self.hide()
+
+            if DEBUG:
+                key_name = QtGui.QKeySequence(self.hotkey).toString()
+                logger.info(f"Curve Profile Editor started in EPHEMERAL mode (hotkey: {key_name})")
+        else:
+            # Traditional mode: fixed size dialog
+            self.setGeometry(300, 300, 400, 400)
+            self.setFixedSize(400, 400)
+            self.setWindowTitle('Bezier curve')
+            self.show()
+
+            if DEBUG:
+                logger.info("Curve Profile Editor started with DEBUG mode enabled")
 
 
     def paintEvent(self, e):
         qp = QtGui.QPainter()
         qp.begin(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing)
-        
-        self.drawRectangle(qp, self.margin, self.margin, self.geometry().width()-(2*self.margin), self.geometry().height()-(2*self.margin))
-        
+
+        # Get current widget dimensions
+        width = self.geometry().width()
+        height = self.geometry().height()
+
+        # In ephemeral mode, draw a semi-transparent background overlay
+        if self.ephemeral_mode:
+            # Fill entire window with semi-transparent background
+            qp.fillRect(self.rect(), QtGui.QColor(10, 25, 25, 100))
+
+        self.drawRectangle(qp, self.margin, self.margin, width-(2*self.margin), height-(2*self.margin))
+
         if self.lmb:
-            self.drawBezierCurve(qp, self.x1, self.margin, self.x2, 400 - self.margin)
-            
+            self.drawBezierCurve(qp, self.x1, self.margin, self.x2, height - self.margin)
+
             self.drawLine(qp, self.margin, self.margin, self.x1, self.margin)
-            self.drawLine(qp, 400 - self.margin, 400 - self.margin, self.x2, 400 - self.margin)
+            self.drawLine(qp, width - self.margin, height - self.margin, self.x2, height - self.margin)
             self.drawDots(qp, self.x1, self.margin, self.red)
-            self.drawDots(qp, self.x2, 400 - self.margin, self.red)
-        
+            self.drawDots(qp, self.x2, height - self.margin, self.red)
+
         if self.rmb:
-            self.drawBezierCurve(qp, self.margin, self.y1, 400 - self.margin, self.y2)
+            self.drawBezierCurve(qp, self.margin, self.y1, width - self.margin, self.y2)
 
             self.drawLine(qp, self.margin, self.margin, self.margin, self.y1)
-            self.drawLine(qp, 400 - self.margin, 400 - self.margin, 400 - self.margin, self.y2)
+            self.drawLine(qp, width - self.margin, height - self.margin, width - self.margin, self.y2)
             self.drawDots(qp, self.margin, self.y1, self.blue)
-            self.drawDots(qp, 400 - self.margin, self.y2, self.blue)
+            self.drawDots(qp, width - self.margin, self.y2, self.blue)
 
         # Debug mode: draw sampling line and value
         if DEBUG and self.sample_x is not None:
@@ -157,8 +239,12 @@ class Example(QtWidgets.QDialog):
         pen.setWidth(1)
         qp.setPen(pen)
         path = QtGui.QPainterPath()
+
+        width = self.geometry().width()
+        height = self.geometry().height()
+
         path.moveTo(self.margin, self.margin)
-        path.cubicTo(x1, y1, x2, y2, 400 - (self.margin), 400 - (self.margin))
+        path.cubicTo(x1, y1, x2, y2, width - self.margin, height - self.margin)
         qp.drawPath(path)
 
 
@@ -177,8 +263,11 @@ class Example(QtWidgets.QDialog):
 
     def drawSampleLine(self, qp, x):
         """Draw a vertical sampling line and display the Y value at that X position"""
+        width = self.geometry().width()
+        height = self.geometry().height()
+
         # Clamp x to the drawable area
-        x = max(self.margin, min(400 - self.margin, x))
+        x = max(self.margin, min(width - self.margin, x))
 
         # Draw vertical line
         pen = QtGui.QPen()
@@ -188,7 +277,7 @@ class Example(QtWidgets.QDialog):
 
         path = QtGui.QPainterPath()
         path.moveTo(x, self.margin)
-        path.lineTo(x, 400 - self.margin)
+        path.lineTo(x, height - self.margin)
         qp.drawPath(path)
 
         # Sample the curve at this X position
@@ -202,7 +291,7 @@ class Example(QtWidgets.QDialog):
         qp.drawPoint(int(x), int(y_value))
 
         # Get normalized value (0 to 1)
-        time_norm = inv_lerp(self.margin, 400 - self.margin, x)
+        time_norm = inv_lerp(self.margin, width - self.margin, x)
         amount_norm = self.sample_curve_normalized(time_norm, use_lmb=self.lmb)
 
         # Draw text label below the line
@@ -221,7 +310,7 @@ class Example(QtWidgets.QDialog):
         # Calculate text position (below the drawable area)
         text_rect = qp.fontMetrics().boundingRect(text)
         text_x = x - text_rect.width() / 2
-        text_y = 400 - self.margin + 15
+        text_y = height - self.margin + 15
 
         # Draw text background for better visibility
         bg_rect = QtCore.QRectF(text_x - 2, text_y - text_rect.height(),
@@ -252,11 +341,11 @@ class Example(QtWidgets.QDialog):
         percentageX = remap(0.0, 1.0, 0.0, 1.0, pX)
         percentageY = remap(0.0, 1.0, 0.0, 1.0, pY)
 
-        x1Value = min(max(self.margin, pos.x()), 400 - self.margin)
-        y1Value = min(max(self.margin, pos.y()), 400 - self.margin)
+        x1Value = min(max(self.margin, pos.x()), width - self.margin)
+        y1Value = min(max(self.margin, pos.y()), height - self.margin)
 
-        x2Value = min(max(self.margin, 400 * (1.0 - percentageY)), 400 - self.margin)
-        y2Value = min(max(self.margin, 400 * (1.0 - percentageX)), 400 - self.margin)
+        x2Value = min(max(self.margin, width * (1.0 - percentageY)), width - self.margin)
+        y2Value = min(max(self.margin, height * (1.0 - percentageX)), height - self.margin)
 
         # Debug mode: update sample position when middle mouse is held
         if DEBUG and self.mmb:
@@ -289,6 +378,28 @@ class Example(QtWidgets.QDialog):
         self.rmb  = bool(QtCore.Qt.RightButton & check)
         self.mmb  = bool(QtCore.Qt.MiddleButton & check)
         super(Example, self).mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle key press events for ephemeral mode hotkey"""
+        if self.ephemeral_mode:
+            if event.key() == self.hotkey and not event.isAutoRepeat():
+                self.hotkey_pressed = True
+                self.show()
+                self.raise_()
+                self.activateWindow()
+                if DEBUG:
+                    logger.debug("Hotkey pressed - showing curve editor")
+        super(Example, self).keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Handle key release events for ephemeral mode hotkey"""
+        if self.ephemeral_mode:
+            if event.key() == self.hotkey and not event.isAutoRepeat():
+                self.hotkey_pressed = False
+                self.hide()
+                if DEBUG:
+                    logger.debug("Hotkey released - hiding curve editor")
+        super(Example, self).keyReleaseEvent(event)
 
     def find_t_for_x(self, target_x, p0_x, p1_x, p2_x, p3_x, tolerance=0.0001, max_iterations=10):
         """
@@ -342,18 +453,21 @@ class Example(QtWidgets.QDialog):
         Returns:
             y_value: The Y coordinate at the given X (in widget coordinates)
         """
+        width = self.geometry().width()
+        height = self.geometry().height()
+
         if use_lmb:
             # Horizontal curve: x varies, y is locked at top and bottom
             p0_x, p0_y = self.margin, self.margin
             p1_x, p1_y = self.x1, self.margin
-            p2_x, p2_y = self.x2, 400 - self.margin
-            p3_x, p3_y = 400 - self.margin, 400 - self.margin
+            p2_x, p2_y = self.x2, height - self.margin
+            p3_x, p3_y = width - self.margin, height - self.margin
         else:
             # Vertical curve: y varies, x is locked at left and right
             p0_x, p0_y = self.margin, self.margin
             p1_x, p1_y = self.margin, self.y1
-            p2_x, p2_y = 400 - self.margin, self.y2
-            p3_x, p3_y = 400 - self.margin, 400 - self.margin
+            p2_x, p2_y = width - self.margin, self.y2
+            p3_x, p3_y = width - self.margin, height - self.margin
 
         # Find the t parameter for the given x coordinate
         t = self.find_t_for_x(x_value, p0_x, p1_x, p2_x, p3_x)
@@ -375,15 +489,18 @@ class Example(QtWidgets.QDialog):
         Returns:
             amount_normalized: Amount value from 0.0 to 1.0
         """
+        width = self.geometry().width()
+        height = self.geometry().height()
+
         # Convert normalized time (0-1) to widget X coordinate
-        x_value = lerp(self.margin, 400 - self.margin, time_normalized)
+        x_value = lerp(self.margin, width - self.margin, time_normalized)
 
         # Sample the curve
         y_value = self.sample_curve_at_x(x_value, use_lmb)
 
         # Convert widget Y coordinate back to normalized amount (0-1)
         # Note: Y axis is inverted in screen coordinates (0 is top)
-        amount_normalized = inv_lerp(self.margin, 400 - self.margin, y_value)
+        amount_normalized = inv_lerp(self.margin, height - self.margin, y_value)
 
         # Invert because screen Y increases downward
         amount_normalized = 1.0 - amount_normalized
@@ -401,23 +518,95 @@ class Example(QtWidgets.QDialog):
         Returns:
             Dictionary with normalized control point coordinates
         """
+        width = self.geometry().width()
+        height = self.geometry().height()
+
         if use_lmb:
             return {
                 'p0': (0.0, 0.0),
-                'p1': (inv_lerp(self.margin, 400 - self.margin, self.x1), 0.0),
-                'p2': (inv_lerp(self.margin, 400 - self.margin, self.x2), 1.0),
+                'p1': (inv_lerp(self.margin, width - self.margin, self.x1), 0.0),
+                'p2': (inv_lerp(self.margin, width - self.margin, self.x2), 1.0),
                 'p3': (1.0, 1.0)
             }
         else:
             return {
                 'p0': (0.0, 0.0),
-                'p1': (0.0, inv_lerp(self.margin, 400 - self.margin, self.y1)),
-                'p2': (1.0, inv_lerp(self.margin, 400 - self.margin, self.y2)),
+                'p1': (0.0, inv_lerp(self.margin, height - self.margin, self.y1)),
+                'p2': (1.0, inv_lerp(self.margin, height - self.margin, self.y2)),
                 'p3': (1.0, 1.0)
             }
 
 
+# Global state for ephemeral mode
+_EPHEMERAL_UI = None
+_EPHEMERAL_FILTER = None
+
+
+def activate_ephemeral_mode(hotkey=QtCore.Qt.Key_Shift):
+    """
+    Activate the ephemeral curve editor mode.
+
+    Args:
+        hotkey: The Qt key constant to use as the hotkey (default: Shift key)
+                Examples: QtCore.Qt.Key_Shift, QtCore.Qt.Key_Control, QtCore.Qt.Key_Alt
+
+    Usage:
+        import curveProfileEditor
+        curveProfileEditor.activate_ephemeral_mode(QtCore.Qt.Key_Shift)
+
+        # Now hold Shift to show the curve editor, release to hide
+    """
+    global _EPHEMERAL_UI, _EPHEMERAL_FILTER
+
+    # Clean up any existing instance
+    deactivate_ephemeral_mode()
+
+    # Create the curve editor in ephemeral mode
+    _EPHEMERAL_UI = Example(ephemeral_mode=True, hotkey=hotkey)
+
+    # Install global event filter to detect hotkey
+    _EPHEMERAL_FILTER = EphemeralHotkeyFilter(_EPHEMERAL_UI, hotkey)
+    QtWidgets.QApplication.instance().installEventFilter(_EPHEMERAL_FILTER)
+
+    key_name = QtGui.QKeySequence(hotkey).toString()
+    logger.info(f"Ephemeral curve editor activated. Hold '{key_name}' to show, release to hide.")
+
+
+def deactivate_ephemeral_mode():
+    """
+    Deactivate and clean up the ephemeral curve editor.
+
+    Usage:
+        import curveProfileEditor
+        curveProfileEditor.deactivate_ephemeral_mode()
+    """
+    global _EPHEMERAL_UI, _EPHEMERAL_FILTER
+
+    # Remove event filter
+    if _EPHEMERAL_FILTER is not None:
+        QtWidgets.QApplication.instance().removeEventFilter(_EPHEMERAL_FILTER)
+        _EPHEMERAL_FILTER = None
+
+    # Close and clean up UI
+    if _EPHEMERAL_UI is not None:
+        try:
+            _EPHEMERAL_UI.close()
+            _EPHEMERAL_UI.deleteLater()
+        except:
+            pass
+        _EPHEMERAL_UI = None
+
+    logger.info("Ephemeral curve editor deactivated.")
+
+
 def main():
+    """
+    Create the curve editor in traditional dialog mode.
+
+    Usage:
+        import curveProfileEditor
+        curveProfileEditor.main()
+    """
     global _UI
     try:
         _UI.close()
@@ -426,19 +615,66 @@ def main():
     except:
         pass
     finally:
-        _UI = Example()
+        _UI = Example(ephemeral_mode=False)
 
 
 # ============================================================================
 # USAGE EXAMPLES
 # ============================================================================
 #
-# After creating the UI with main(), you can sample the curve like this:
+# TWO MODES OF OPERATION:
+# -----------------------
+#
+# 1. TRADITIONAL DIALOG MODE (main):
+#    - Creates a standard dialog window
+#    - Stays visible until manually closed
+#    - Good for detailed curve editing
+#
+# 2. EPHEMERAL MODE (activate_ephemeral_mode):
+#    - Frameless, semi-transparent overlay
+#    - Appears when hotkey is held down
+#    - Disappears when hotkey is released
+#    - Perfect for quick adjustments in your workflow
+#
+# ============================================================================
+#
+# EPHEMERAL MODE - Quick access curve editor
+# -------------------------------------------
+# import curveProfileEditor
+# from Qt import QtCore
+#
+# # Activate ephemeral mode with Shift key
+# curveProfileEditor.activate_ephemeral_mode(QtCore.Qt.Key_Shift)
+#
+# # Now:
+# # - Hold Shift to show the curve editor
+# # - Drag to adjust the curve
+# # - Release Shift to hide the editor
+#
+# # Try different hotkeys:
+# curveProfileEditor.activate_ephemeral_mode(QtCore.Qt.Key_Control)  # Use Ctrl
+# curveProfileEditor.activate_ephemeral_mode(QtCore.Qt.Key_Alt)      # Use Alt
+#
+# # Deactivate when done:
+# curveProfileEditor.deactivate_ephemeral_mode()
+#
+# # Access the curve values even when hidden:
+# if curveProfileEditor._EPHEMERAL_UI:
+#     value = curveProfileEditor._EPHEMERAL_UI.sample_curve_normalized(0.5)
+#
+# ============================================================================
+#
+# TRADITIONAL MODE - Standard dialog
+# -----------------------------------
+# import curveProfileEditor
+# curveProfileEditor.main()
+#
+# # After creating the UI with main(), you can sample the curve like this:
 #
 # Example 1: Sample at normalized time (most common for animation)
 # ------------------------------------------------------------------
 # time = 0.5  # 50% through the animation
-# amount = _UI.sample_curve_normalized(time, use_lmb=True)
+# amount = curveProfileEditor._UI.sample_curve_normalized(time, use_lmb=True)
 # print("At time {}, amount is {}".format(time, amount))
 #
 # Example 2: Sample multiple points to create an animation curve
@@ -446,13 +682,13 @@ def main():
 # samples = []
 # for i in range(11):
 #     time = i / 10.0  # 0.0, 0.1, 0.2, ... 1.0
-#     amount = _UI.sample_curve_normalized(time, use_lmb=True)
+#     amount = curveProfileEditor._UI.sample_curve_normalized(time, use_lmb=True)
 #     samples.append((time, amount))
 # print("Curve samples:", samples)
 #
 # Example 3: Get the control point values for saving/loading
 # -----------------------------------------------------------
-# curve_data = _UI.get_curve_values(use_lmb=True)
+# curve_data = curveProfileEditor._UI.get_curve_values(use_lmb=True)
 # print("Control points:", curve_data)
 # # Output: {'p0': (0.0, 0.0), 'p1': (x1, 0.0), 'p2': (x2, 1.0), 'p3': (1.0, 1.0)}
 #
@@ -464,7 +700,7 @@ def main():
 # end_frame = 100
 # for frame in range(start_frame, end_frame + 1):
 #     time = (frame - start_frame) / float(end_frame - start_frame)
-#     value = _UI.sample_curve_normalized(time, use_lmb=True)
+#     value = curveProfileEditor._UI.sample_curve_normalized(time, use_lmb=True)
 #     # Apply to an attribute
 #     cmds.setKeyframe('pSphere1.translateY', time=frame, value=value * 10)
 #
