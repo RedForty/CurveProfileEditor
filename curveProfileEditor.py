@@ -141,6 +141,10 @@ class Example(QtWidgets.QDialog):
         self.red  = QtGui.QColor(250, 0, 0  , 150)
         self.blue = QtGui.QColor(  0, 0, 255, 150)
 
+        # Cached region overlay image (rebuilt when widget size changes)
+        self._region_cache = None
+        self._region_cache_size = None
+
         self.initUI()
 
 
@@ -328,70 +332,133 @@ class Example(QtWidgets.QDialog):
         qp.drawText(int(text_x), int(text_y), text)
         
         
-    def drawRegionOverlay(self, qp):
-        """Draw semi-transparent triangular regions showing mouse drag zones.
+    def _buildRegionImage(self, width, height):
+        """Build a per-pixel color map of the mouse drag regions.
 
-        The 45-degree rotation divides the widget into four triangular wedges
-        along the diagonals. Each wedge corresponds to a curve behavior:
-          Top    = Linear
-          Bottom = S-Curve (easeInOutExpo)
-          Left   = Ease Out
-          Right  = Ease In
+        For each pixel, computes the 45-degree-rotated coordinates and
+        derives the normalized control point positions (x1n, x2n). These
+        are bilinearly blended across four curve-type colors:
+
+            x1n=0, x2n=1  -> Linear   (green)
+            x1n=1, x2n=0  -> S-Curve  (red)
+            x1n=0, x2n=0  -> Ease Out (blue)
+            x1n=1, x2n=1  -> Ease In  (amber)
+
+        Static (fully-clamped) zones get higher alpha so they stand out
+        from the gradient transition regions.
+        """
+        scale = 4  # render at 1/4 resolution for performance
+        iw = max(1, width // scale)
+        ih = max(1, height // scale)
+
+        img = QtGui.QImage(iw, ih, QtGui.QImage.Format_ARGB32)
+        img.fill(0)
+
+        cos45 = 0.7071067811865476
+        half_w = width / 2.0
+        half_h = height / 2.0
+        margin = float(self.margin)
+        drawable = float(width - 2 * margin)
+        w_float = float(width)
+        h_float = float(height)
+
+        # Region colors (R, G, B)
+        linear_c   = ( 80, 200,  80)  # green
+        scurve_c   = (200,  60,  60)  # red
+        ease_out_c = ( 60, 120, 200)  # blue
+        ease_in_c  = (200, 160,  40)  # amber
+
+        base_alpha = 40
+        static_alpha = 70
+
+        for py in range(ih):
+            my = (py + 0.5) * scale
+            cy = my - half_h
+            for px in range(iw):
+                mx = (px + 0.5) * scale
+                cx = mx - half_w
+
+                # Same rotation as mouseMoveEvent
+                rotX = cx * cos45 + cy * cos45 + half_w
+                rotY = -cx * cos45 + cy * cos45 + half_h
+
+                if drawable > 0:
+                    x1n_raw = (rotX - margin) / drawable
+                    x2_raw_px = w_float * (1.0 - rotY / h_float)
+                    x2n_raw = (x2_raw_px - margin) / drawable
+
+                    x1n = max(0.0, min(1.0, x1n_raw))
+                    x2n = max(0.0, min(1.0, x2n_raw))
+                else:
+                    x1n = x2n = 0.5
+                    x1n_raw = x2n_raw = 0.5
+
+                # Bilinear blend of four curve-type colors
+                a_eo = (1 - x1n) * (1 - x2n)  # ease out
+                a_sc = x1n * (1 - x2n)          # s-curve
+                a_li = (1 - x1n) * x2n          # linear
+                a_ei = x1n * x2n                 # ease in
+
+                r = int(a_eo * ease_out_c[0] + a_sc * scurve_c[0] +
+                        a_li * linear_c[0] + a_ei * ease_in_c[0])
+                g = int(a_eo * ease_out_c[1] + a_sc * scurve_c[1] +
+                        a_li * linear_c[1] + a_ei * ease_in_c[1])
+                b = int(a_eo * ease_out_c[2] + a_sc * scurve_c[2] +
+                        a_li * linear_c[2] + a_ei * ease_in_c[2])
+
+                # Static zones (both control points clamped) get higher alpha
+                x1_clamped = (x1n_raw <= 0.0 or x1n_raw >= 1.0)
+                x2_clamped = (x2n_raw <= 0.0 or x2n_raw >= 1.0)
+                alpha = static_alpha if (x1_clamped and x2_clamped) else base_alpha
+
+                color = QtGui.QColor(r, g, b, alpha)
+                img.setPixel(px, py, color.rgba())
+
+        return img
+
+    def drawRegionOverlay(self, qp):
+        """Draw a continuous gradient overlay showing mouse drag regions.
+
+        Static zones (where both control points are fully clamped) appear
+        brighter. Transition zones show a smooth color gradient indicating
+        the blend between curve types.
         """
         width = self.geometry().width()
         height = self.geometry().height()
 
-        cx = width / 2.0
-        cy = height / 2.0
-
-        # Four corner points and center
-        top_left     = QtCore.QPointF(0, 0)
-        top_right    = QtCore.QPointF(width, 0)
-        bottom_left  = QtCore.QPointF(0, height)
-        bottom_right = QtCore.QPointF(width, height)
-        center       = QtCore.QPointF(cx, cy)
-
-        # Region colors (semi-transparent)
-        color_linear   = QtGui.QColor( 80, 200,  80, 35)  # green
-        color_scurve   = QtGui.QColor(200,  60,  60, 35)  # red
-        color_ease_out = QtGui.QColor( 60, 120, 200, 35)  # blue
-        color_ease_in  = QtGui.QColor(200, 160,  40, 35)  # amber
-
-        regions = [
-            # (triangle points, fill color, label, label position)
-            ([top_left,  top_right,    center], color_linear,   "Linear",   QtCore.QPointF(cx, cy * 0.4)),
-            ([bottom_left, bottom_right, center], color_scurve, "S-Curve",  QtCore.QPointF(cx, height - cy * 0.4)),
-            ([top_left,  bottom_left,  center], color_ease_out, "Ease Out", QtCore.QPointF(cx * 0.35, cy)),
-            ([top_right, bottom_right, center], color_ease_in,  "Ease In",  QtCore.QPointF(width - cx * 0.35, cy)),
-        ]
+        # Rebuild the cached image when the widget size changes
+        if (self._region_cache is None or
+                self._region_cache_size != (width, height)):
+            self._region_cache = self._buildRegionImage(width, height)
+            self._region_cache_size = (width, height)
 
         qp.save()
 
-        for points, color, label, label_pos in regions:
-            # Draw filled triangle
-            polygon = QtGui.QPolygonF(points)
-            qp.setPen(QtCore.Qt.NoPen)
-            qp.setBrush(QtGui.QBrush(color))
-            qp.drawPolygon(polygon)
+        # Draw the color map scaled up to full widget size
+        qp.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+        qp.drawImage(QtCore.QRectF(0, 0, width, height), self._region_cache)
 
-            # Draw diagonal border lines
-            pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 30))
-            pen.setWidth(1)
-            pen.setStyle(QtCore.Qt.DashLine)
-            qp.setPen(pen)
-            qp.setBrush(QtCore.Qt.NoBrush)
-            qp.drawPolygon(polygon)
+        # Draw labels in the four cardinal positions
+        cx = width / 2.0
+        cy = height / 2.0
+        labels = [
+            ("Linear",   QtCore.QPointF(cx, cy * 0.4)),
+            ("S-Curve",  QtCore.QPointF(cx, height - cy * 0.4)),
+            ("Ease Out", QtCore.QPointF(cx * 0.35, cy)),
+            ("Ease In",  QtCore.QPointF(width - cx * 0.35, cy)),
+        ]
 
-            # Draw label
-            font = QtGui.QFont()
-            font.setPointSize(9)
-            qp.setFont(font)
-            pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 60))
-            qp.setPen(pen)
+        font = QtGui.QFont()
+        font.setPointSize(9)
+        qp.setFont(font)
+        pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 80))
+        qp.setPen(pen)
+
+        for label, pos in labels:
             text_rect = qp.fontMetrics().boundingRect(label)
             qp.drawText(
-                int(label_pos.x() - text_rect.width() / 2),
-                int(label_pos.y() + text_rect.height() / 4),
+                int(pos.x() - text_rect.width() / 2),
+                int(pos.y() + text_rect.height() / 4),
                 label,
             )
 
