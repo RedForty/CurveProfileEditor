@@ -141,6 +141,9 @@ class Example(QtWidgets.QDialog):
         self.red  = QtGui.QColor(250, 0, 0  , 150)
         self.blue = QtGui.QColor(  0, 0, 255, 150)
 
+        # Number of spacing lines to show (0 to disable, settable by external tools)
+        self.spacing_lines = 5
+
         # Cached region overlay image (rebuilt when widget size changes)
         self._region_cache = None
         self._region_cache_size = None
@@ -200,6 +203,10 @@ class Example(QtWidgets.QDialog):
         # Debug regions: draw the mouse drag zone overlay behind the curves
         if DEBUG_REGIONS:
             self.drawRegionOverlay(qp)
+
+        # Draw spacing lines behind the curves
+        if self.spacing_lines > 0 and self.lmb:
+            self.drawSpacingLines(qp)
 
         if self.lmb:
             self.drawBezierCurve(qp, self.x1, self.margin, self.x2, height - self.margin)
@@ -332,6 +339,46 @@ class Example(QtWidgets.QDialog):
         qp.drawText(int(text_x), int(text_y), text)
         
         
+    def drawSpacingLines(self, qp):
+        """Draw vertical lines showing how evenly-spaced values are redistributed.
+
+        Given N lines, each represents a value at i/(N+1) for i=1..N.
+        When the curve is linear, lines are evenly spaced horizontally.
+        As the curve reshapes, lines shift to show the new time positions
+        where those values occur — like an animator's spacing chart.
+        """
+        width = self.geometry().width()
+        height = self.geometry().height()
+        n = self.spacing_lines
+
+        # LMB curve control points
+        p0_x, p0_y = float(self.margin), float(self.margin)
+        p1_x, p1_y = float(self.x1), float(self.margin)
+        p2_x, p2_y = float(self.x2), float(height - self.margin)
+        p3_x, p3_y = float(width - self.margin), float(height - self.margin)
+
+        pen = QtGui.QPen()
+        pen.setColor(QtGui.QColor(255, 255, 255, 40))
+        pen.setWidth(1)
+        qp.setPen(pen)
+
+        for i in range(1, n + 1):
+            # Target: evenly-spaced Y value within the drawable area
+            frac = i / (n + 1.0)
+            target_y = lerp(p0_y, p3_y, frac)
+
+            # Find the bezier parameter t where Y(t) = target_y
+            t = self.find_t_for_x(target_y, p0_y, p1_y, p2_y, p3_y)
+
+            # Evaluate X at that t to get the horizontal position
+            x_pos = cubic_bezier(p0_x, p1_x, p2_x, p3_x, t)
+
+            # Draw vertical line across the drawable area
+            path = QtGui.QPainterPath()
+            path.moveTo(x_pos, self.margin)
+            path.lineTo(x_pos, height - self.margin)
+            qp.drawPath(path)
+
     def _buildRegionImage(self, width, height):
         """Build a per-pixel color map of the mouse drag regions.
 
