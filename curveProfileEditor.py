@@ -130,7 +130,7 @@ class Example(QtWidgets.QDialog):
 
         self.sample_x = None  # X position for sampling line
 
-        self.margin = 20
+        self.margin = 80
 
         self.x1 = 200
         self.y1 = 200
