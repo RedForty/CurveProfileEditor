@@ -379,6 +379,18 @@ class Example(QtWidgets.QDialog):
             path.lineTo(x_pos, height - self.margin)
             qp.drawPath(path)
 
+            # Draw yellow pin dots at top and bottom of each line
+            dot_pen = QtGui.QPen()
+            dot_pen.setColor(QtGui.QColor(255, 220, 40))
+            dot_pen.setCapStyle(QtCore.Qt.RoundCap)
+            dot_pen.setWidth(6)
+            qp.setPen(dot_pen)
+            qp.drawPoint(int(x_pos), self.margin)
+            qp.drawPoint(int(x_pos), height - self.margin)
+
+            # Restore line pen for next iteration
+            qp.setPen(pen)
+
     def _buildRegionImage(self, width, height):
         """Build a per-pixel color map of the mouse drag regions.
 
