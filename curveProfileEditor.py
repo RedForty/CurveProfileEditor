@@ -210,7 +210,7 @@ class Example(QtWidgets.QDialog):
             self.drawRegionOverlay(qp)
 
         # Draw spacing lines behind the curve
-        if self.spacing_lines > 0 and self.active_mode == 'lmb':
+        if self.spacing_lines > 0:
             self.drawSpacingLines(qp)
 
         # Draw only the active curve (toggled by most recent mouse button)
@@ -230,7 +230,7 @@ class Example(QtWidgets.QDialog):
             self.drawDots(qp, width - self.margin, self.y2, self.blue)
 
         # Draw spacing pin dots on top of everything
-        if self.spacing_lines > 0 and self.active_mode == 'lmb' and self._spacing_x_positions:
+        if self.spacing_lines > 0 and self._spacing_x_positions:
             self.drawSpacingPins(qp)
 
         # Debug mode: draw sampling line and value
@@ -362,11 +362,17 @@ class Example(QtWidgets.QDialog):
         n = self.spacing_lines
         self._spacing_x_positions = []
 
-        # LMB curve control points
-        p0_x, p0_y = float(self.margin), float(self.margin)
-        p1_x, p1_y = float(self.x1), float(self.margin)
-        p2_x, p2_y = float(self.x2), float(height - self.margin)
-        p3_x, p3_y = float(width - self.margin), float(height - self.margin)
+        # Control points for the active curve
+        if self.active_mode == 'lmb':
+            p0_x, p0_y = float(self.margin), float(self.margin)
+            p1_x, p1_y = float(self.x1), float(self.margin)
+            p2_x, p2_y = float(self.x2), float(height - self.margin)
+            p3_x, p3_y = float(width - self.margin), float(height - self.margin)
+        else:
+            p0_x, p0_y = float(self.margin), float(self.margin)
+            p1_x, p1_y = float(self.margin), float(self.y1)
+            p2_x, p2_y = float(width - self.margin), float(self.y2)
+            p3_x, p3_y = float(width - self.margin), float(height - self.margin)
 
         pen = QtGui.QPen()
         pen.setColor(QtGui.QColor(255, 255, 255, 40))
@@ -749,6 +755,22 @@ class Example(QtWidgets.QDialog):
         amount_normalized = 1.0 - amount_normalized
 
         return amount_normalized
+
+    def sample(self, time_normalized):
+        """Sample the active curve at a normalized time (0 to 1).
+
+        Convenience method for external tools — automatically uses
+        whichever curve is currently active (LMB or RMB mode).
+
+        Args:
+            time_normalized: Time value from 0.0 to 1.0
+
+        Returns:
+            amount_normalized: Value from 0.0 to 1.0 representing the
+                curve's bias away from linear at that point.
+        """
+        use_lmb = (self.active_mode == 'lmb')
+        return self.sample_curve_normalized(time_normalized, use_lmb=use_lmb)
 
     def get_curve_values(self, use_lmb=True):
         """
