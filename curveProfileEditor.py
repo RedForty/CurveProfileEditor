@@ -326,26 +326,35 @@ class Example(QtWidgets.QDialog):
         width = self.geometry().width()
         height = self.geometry().height()
 
-        # Start doing math here to symmetrize the vertical
-        # and do opposite the horizontal
-
         # Qt6 compatibility: use position() instead of pos()
         if hasattr(event, 'position'):
             pos = event.position().toPoint()  # Qt6
         else:
             pos = event.pos()  # Qt5
 
-        pX = pos.x() / width
-        pY = pos.y() / height
+        # Rotate mouse position 45 degrees clockwise around the widget center.
+        # This shifts the linear<->S-curve axis from the diagonal (top-left
+        # to bottom-right) to the vertical (top-center to bottom-center).
+        cx = pos.x() - width / 2.0
+        cy = pos.y() - height / 2.0
 
-        percentageX = remap(0.0, 1.0, 0.0, 1.0, pX)
-        percentageY = remap(0.0, 1.0, 0.0, 1.0, pY)
+        cos45 = 0.7071067811865476  # 1/sqrt(2)
+        sin45 = 0.7071067811865476
 
-        x1Value = min(max(self.margin, pos.x()), width - self.margin)
-        y1Value = min(max(self.margin, pos.y()), height - self.margin)
+        rx = cx * cos45 + cy * sin45
+        ry = -cx * sin45 + cy * cos45
 
-        x2Value = min(max(self.margin, width * (1.0 - percentageY)), width - self.margin)
-        y2Value = min(max(self.margin, height * (1.0 - percentageX)), height - self.margin)
+        rotX = rx + width / 2.0
+        rotY = ry + height / 2.0
+
+        pX = rotX / width
+        pY = rotY / height
+
+        x1Value = min(max(self.margin, rotX), width - self.margin)
+        y1Value = min(max(self.margin, rotY), height - self.margin)
+
+        x2Value = min(max(self.margin, width * (1.0 - pY)), width - self.margin)
+        y2Value = min(max(self.margin, height * (1.0 - pX)), height - self.margin)
 
         # Debug mode: update sample position when middle mouse is held
         if DEBUG and self.mmb:
