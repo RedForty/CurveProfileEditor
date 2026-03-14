@@ -143,6 +143,7 @@ class Example(QtWidgets.QDialog):
 
         # Number of spacing lines to show (0 to disable, settable by external tools)
         self.spacing_lines = 5
+        self._spacing_x_positions = []
 
         # Cached region overlay image (rebuilt when widget size changes)
         self._region_cache = None
@@ -224,11 +225,15 @@ class Example(QtWidgets.QDialog):
             self.drawDots(qp, self.margin, self.y1, self.blue)
             self.drawDots(qp, width - self.margin, self.y2, self.blue)
 
+        # Draw spacing pin dots on top of everything
+        if self.spacing_lines > 0 and self.lmb and self._spacing_x_positions:
+            self.drawSpacingPins(qp)
+
         # Debug mode: draw sampling line and value
         if DEBUG and self.sample_x is not None:
             self.drawSampleLine(qp, self.sample_x)
 
-        qp.end()        
+        qp.end()
 
 
     def drawRectangle(self, qp, x, y, width, height):
@@ -350,6 +355,7 @@ class Example(QtWidgets.QDialog):
         width = self.geometry().width()
         height = self.geometry().height()
         n = self.spacing_lines
+        self._spacing_x_positions = []
 
         # LMB curve control points
         p0_x, p0_y = float(self.margin), float(self.margin)
@@ -379,17 +385,28 @@ class Example(QtWidgets.QDialog):
             path.lineTo(x_pos, height - self.margin)
             qp.drawPath(path)
 
-            # Draw yellow pin dots at top and bottom of each line
-            dot_pen = QtGui.QPen()
-            dot_pen.setColor(QtGui.QColor(255, 220, 40))
-            dot_pen.setCapStyle(QtCore.Qt.RoundCap)
-            dot_pen.setWidth(6)
-            qp.setPen(dot_pen)
-            qp.drawPoint(int(x_pos), self.margin)
-            qp.drawPoint(int(x_pos), height - self.margin)
+            # Track x positions for pin dots (drawn later on top)
+            self._spacing_x_positions.append(x_pos)
 
-            # Restore line pen for next iteration
-            qp.setPen(pen)
+    def drawSpacingPins(self, qp):
+        """Draw yellow dots at the top and bottom of each spacing line."""
+        height = self.geometry().height()
+        radius = 4
+
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QBrush(QtGui.QColor(255, 220, 40)))
+
+        for x_pos in self._spacing_x_positions:
+            qp.drawEllipse(
+                QtCore.QPointF(x_pos, self.margin),
+                radius, radius,
+            )
+            qp.drawEllipse(
+                QtCore.QPointF(x_pos, height - self.margin),
+                radius, radius,
+            )
+
+        qp.setBrush(QtCore.Qt.NoBrush)
 
     def _buildRegionImage(self, width, height):
         """Build a per-pixel color map of the mouse drag regions.
