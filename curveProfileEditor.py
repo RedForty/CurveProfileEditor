@@ -619,6 +619,7 @@ class Example(QtWidgets.QDialog):
         elif event.button() == QtCore.Qt.LeftButton and self.rmb:
             self.active_mode = 'rmb'
 
+        self.update()  # Repaint to reflect mode switch
         super(Example, self).mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
