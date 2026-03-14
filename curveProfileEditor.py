@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Debug mode: Enable curve sampling visualization
 DEBUG = True
 
+# Debug mode: Show mouse drag region overlay
+DEBUG_REGIONS = True
+
 # Thank you Freya Holmer | Neat Corp
 # https://youtu.be/NzjF1pdlK7Y
 
@@ -190,6 +193,10 @@ class Example(QtWidgets.QDialog):
 
         self.drawRectangle(qp, self.margin, self.margin, width-(2*self.margin), height-(2*self.margin))
 
+        # Debug regions: draw the mouse drag zone overlay behind the curves
+        if DEBUG_REGIONS:
+            self.drawRegionOverlay(qp)
+
         if self.lmb:
             self.drawBezierCurve(qp, self.x1, self.margin, self.x2, height - self.margin)
 
@@ -321,6 +328,75 @@ class Example(QtWidgets.QDialog):
         qp.drawText(int(text_x), int(text_y), text)
         
         
+    def drawRegionOverlay(self, qp):
+        """Draw semi-transparent triangular regions showing mouse drag zones.
+
+        The 45-degree rotation divides the widget into four triangular wedges
+        along the diagonals. Each wedge corresponds to a curve behavior:
+          Top    = Linear
+          Bottom = S-Curve (easeInOutExpo)
+          Left   = Ease Out
+          Right  = Ease In
+        """
+        width = self.geometry().width()
+        height = self.geometry().height()
+
+        cx = width / 2.0
+        cy = height / 2.0
+
+        # Four corner points and center
+        top_left     = QtCore.QPointF(0, 0)
+        top_right    = QtCore.QPointF(width, 0)
+        bottom_left  = QtCore.QPointF(0, height)
+        bottom_right = QtCore.QPointF(width, height)
+        center       = QtCore.QPointF(cx, cy)
+
+        # Region colors (semi-transparent)
+        color_linear   = QtGui.QColor( 80, 200,  80, 35)  # green
+        color_scurve   = QtGui.QColor(200,  60,  60, 35)  # red
+        color_ease_out = QtGui.QColor( 60, 120, 200, 35)  # blue
+        color_ease_in  = QtGui.QColor(200, 160,  40, 35)  # amber
+
+        regions = [
+            # (triangle points, fill color, label, label position)
+            ([top_left,  top_right,    center], color_linear,   "Linear",   QtCore.QPointF(cx, cy * 0.4)),
+            ([bottom_left, bottom_right, center], color_scurve, "S-Curve",  QtCore.QPointF(cx, height - cy * 0.4)),
+            ([top_left,  bottom_left,  center], color_ease_out, "Ease Out", QtCore.QPointF(cx * 0.35, cy)),
+            ([top_right, bottom_right, center], color_ease_in,  "Ease In",  QtCore.QPointF(width - cx * 0.35, cy)),
+        ]
+
+        qp.save()
+
+        for points, color, label, label_pos in regions:
+            # Draw filled triangle
+            polygon = QtGui.QPolygonF(points)
+            qp.setPen(QtCore.Qt.NoPen)
+            qp.setBrush(QtGui.QBrush(color))
+            qp.drawPolygon(polygon)
+
+            # Draw diagonal border lines
+            pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 30))
+            pen.setWidth(1)
+            pen.setStyle(QtCore.Qt.DashLine)
+            qp.setPen(pen)
+            qp.setBrush(QtCore.Qt.NoBrush)
+            qp.drawPolygon(polygon)
+
+            # Draw label
+            font = QtGui.QFont()
+            font.setPointSize(9)
+            qp.setFont(font)
+            pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 60))
+            qp.setPen(pen)
+            text_rect = qp.fontMetrics().boundingRect(label)
+            qp.drawText(
+                int(label_pos.x() - text_rect.width() / 2),
+                int(label_pos.y() + text_rect.height() / 4),
+                label,
+            )
+
+        qp.restore()
+
     def mouseMoveEvent(self, event):
 
         width = self.geometry().width()
