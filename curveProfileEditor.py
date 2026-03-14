@@ -611,6 +611,14 @@ class Example(QtWidgets.QDialog):
         self.lmb  = bool(QtCore.Qt.LeftButton & check)
         self.rmb  = bool(QtCore.Qt.RightButton & check)
         self.mmb  = bool(QtCore.Qt.MiddleButton & check)
+
+        # If the active mode's button was released, fall back to the other
+        # button if it's still held
+        if event.button() == QtCore.Qt.RightButton and self.lmb:
+            self.active_mode = 'lmb'
+        elif event.button() == QtCore.Qt.LeftButton and self.rmb:
+            self.active_mode = 'rmb'
+
         super(Example, self).mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
