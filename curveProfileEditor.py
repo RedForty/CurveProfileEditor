@@ -125,8 +125,12 @@ class Example(QtWidgets.QDialog):
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
 
         self.lmb = True
-        self.rmb = True
+        self.rmb = False
         self.mmb = False
+
+        # Which curve is active: 'lmb' (horizontal handles) or 'rmb' (vertical handles)
+        # Most recently pressed mouse button wins
+        self.active_mode = 'lmb'
 
         self.sample_x = None  # X position for sampling line
 
@@ -205,19 +209,19 @@ class Example(QtWidgets.QDialog):
         if DEBUG_REGIONS:
             self.drawRegionOverlay(qp)
 
-        # Draw spacing lines behind the curves
-        if self.spacing_lines > 0 and self.lmb:
+        # Draw spacing lines behind the curve
+        if self.spacing_lines > 0 and self.active_mode == 'lmb':
             self.drawSpacingLines(qp)
 
-        if self.lmb:
+        # Draw only the active curve (toggled by most recent mouse button)
+        if self.active_mode == 'lmb':
             self.drawBezierCurve(qp, self.x1, self.margin, self.x2, height - self.margin)
 
             self.drawLine(qp, self.margin, self.margin, self.x1, self.margin)
             self.drawLine(qp, width - self.margin, height - self.margin, self.x2, height - self.margin)
             self.drawDots(qp, self.x1, self.margin, self.red)
             self.drawDots(qp, self.x2, height - self.margin, self.red)
-
-        if self.rmb:
+        else:
             self.drawBezierCurve(qp, self.margin, self.y1, width - self.margin, self.y2)
 
             self.drawLine(qp, self.margin, self.margin, self.margin, self.y1)
@@ -226,7 +230,7 @@ class Example(QtWidgets.QDialog):
             self.drawDots(qp, width - self.margin, self.y2, self.blue)
 
         # Draw spacing pin dots on top of everything
-        if self.spacing_lines > 0 and self.lmb and self._spacing_x_positions:
+        if self.spacing_lines > 0 and self.active_mode == 'lmb' and self._spacing_x_positions:
             self.drawSpacingPins(qp)
 
         # Debug mode: draw sampling line and value
@@ -304,7 +308,8 @@ class Example(QtWidgets.QDialog):
         qp.drawPath(path)
 
         # Sample the curve at this X position
-        y_value = self.sample_curve_at_x(x, use_lmb=self.lmb)
+        use_lmb = (self.active_mode == 'lmb')
+        y_value = self.sample_curve_at_x(x, use_lmb=use_lmb)
 
         # Draw a dot at the sampled point
         pen.setColor(QtGui.QColor(0, 255, 0))
@@ -315,7 +320,7 @@ class Example(QtWidgets.QDialog):
 
         # Get normalized value (0 to 1)
         time_norm = inv_lerp(self.margin, width - self.margin, x)
-        amount_norm = self.sample_curve_normalized(time_norm, use_lmb=self.lmb)
+        amount_norm = self.sample_curve_normalized(time_norm, use_lmb=use_lmb)
 
         # Draw text label below the line
         pen.setColor(QtGui.QColor(255, 255, 255))
@@ -573,12 +578,13 @@ class Example(QtWidgets.QDialog):
         if DEBUG and self.mmb:
             self.sample_x = pos.x()
         elif not self.mmb:
-            # Update control points when not sampling
-            self.x1 = x1Value
-            self.y1 = y1Value
-
-            self.x2 = x2Value
-            self.y2 = y2Value
+            # Only update control points for the active curve
+            if self.active_mode == 'lmb':
+                self.x1 = x1Value
+                self.x2 = x2Value
+            else:
+                self.y1 = y1Value
+                self.y2 = y2Value
 
         self.update() # Repaint
 
@@ -588,6 +594,12 @@ class Example(QtWidgets.QDialog):
         self.lmb  = bool(QtCore.Qt.LeftButton & check)
         self.rmb  = bool(QtCore.Qt.RightButton & check)
         self.mmb  = bool(QtCore.Qt.MiddleButton & check)
+
+        # Most recently pressed button becomes the active mode
+        if event.button() == QtCore.Qt.LeftButton:
+            self.active_mode = 'lmb'
+        elif event.button() == QtCore.Qt.RightButton:
+            self.active_mode = 'rmb'
 
         if DEBUG and self.mmb:
             logger.debug("Started curve sampling with middle mouse button")
