@@ -354,7 +354,6 @@ class Example(QtWidgets.QDialog):
         img = QtGui.QImage(iw, ih, QtGui.QImage.Format_ARGB32)
         img.fill(0)
 
-        cos45 = 0.7071067811865476
         half_w = width / 2.0
         half_h = height / 2.0
         margin = float(self.margin)
@@ -378,9 +377,9 @@ class Example(QtWidgets.QDialog):
                 mx = (px + 0.5) * scale
                 cx = mx - half_w
 
-                # Same rotation as mouseMoveEvent
-                rotX = cx * cos45 + cy * cos45 + half_w
-                rotY = -cx * cos45 + cy * cos45 + half_h
+                # Same rotation as mouseMoveEvent (45 deg + sqrt(2) scale)
+                rotX = (cx + cy) + half_w
+                rotY = (-cx + cy) + half_h
 
                 if drawable > 0:
                     x1n_raw = (rotX - margin) / drawable
@@ -475,20 +474,15 @@ class Example(QtWidgets.QDialog):
         else:
             pos = event.pos()  # Qt5
 
-        # Rotate mouse position 45 degrees clockwise around the widget center.
-        # This shifts the linear<->S-curve axis from the diagonal (top-left
-        # to bottom-right) to the vertical (top-center to bottom-center).
+        # Rotate mouse position 45 degrees clockwise around the widget center,
+        # scaled by sqrt(2) so the full curve range fits within the widget.
+        # The sqrt(2) factor simplifies cos45*sqrt(2) = 1, so the rotation
+        # becomes simple addition/subtraction of the centered coordinates.
         cx = pos.x() - width / 2.0
         cy = pos.y() - height / 2.0
 
-        cos45 = 0.7071067811865476  # 1/sqrt(2)
-        sin45 = 0.7071067811865476
-
-        rx = cx * cos45 + cy * sin45
-        ry = -cx * sin45 + cy * cos45
-
-        rotX = rx + width / 2.0
-        rotY = ry + height / 2.0
+        rotX = (cx + cy) + width / 2.0
+        rotY = (-cx + cy) + height / 2.0
 
         pX = rotX / width
         pY = rotY / height
